@@ -1,0 +1,26 @@
+{
+	"name": "@chat-agent/web",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"dev": "vite",
+		"lint": "echo \"lint not configured yet\"",
+		"test": "echo \"test not configured yet\"",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"lucide-react": "^0.468.0",
+		"react": "^19.0.0",
+		"react-dom": "^19.0.0"
+	},
+	"devDependencies": {
+		"@tailwindcss/vite": "^4.0.0",
+		"@types/react": "^19.0.8",
+		"@types/react-dom": "^19.0.3",
+		"@vitejs/plugin-react": "^4.3.1",
+		"tailwindcss": "^4.0.0",
+		"vite": "^5.4.8"
+	}
+}

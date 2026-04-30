@@ -1,0 +1,25 @@
+{
+	"name": "@chat-agent/api",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"dev": "tsx watch src/index.ts",
+		"lint": "echo \"lint not configured yet\"",
+		"test": "echo \"test not configured yet\"",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"@chat-agent/ai-core": "workspace:*",
+		"@chat-agent/integrations": "workspace:*",
+		"@chat-agent/shared": "workspace:*",
+		"@hono/node-server": "^1.13.1",
+		"hono": "^4.6.5",
+		"zod": "^3.23.8"
+	},
+	"devDependencies": {
+		"@types/node": "^22.7.4",
+		"tsx": "^4.19.1"
+	}
+}
