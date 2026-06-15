@@ -8,3 +8,5 @@ build
 coverage
 .DS_Store
 .vscode
+.turbo
+vite.config.ts.timestamp-*.mjs

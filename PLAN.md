@@ -1,12 +1,12 @@
 # PLAN - SaaS AI Shopping Agent
 
 ## Last Update
-- 2026-04-30
+- 2026-06-15
 
 ## Status Snapshot
-- DONE: Monorepo, API skeleton, widget closed Shadow DOM loader, base DB schema, initial commerce routes.
-- WIP: Tenant admin API, anti-abuse middleware baseline, admin UI forms for connector and LLM settings, chat preview sandbox.
-- TODO: Real RAG ingestion pipeline, production adapter logic, voice orchestration latency path, full hardening and tests.
+- DONE: Monorepo skeleton, widget Shadow DOM loader, base DB schema, initial routes, TS compilation fixed.
+- WIP: SQL-backed repository migration (Phase 1/7), Heureka/Zbozi XML feed RAG ingestion pipeline (Phase 3), Jellyfin-like dark UI (Phase 7), and widget bundling (Phase 2).
+- TODO: Production e-shop adapters, voice orchestration latency, hardening.
 
 ## Architecture Decisions
 - Backend: Hono.
@@ -53,8 +53,9 @@
 ### Phase 7 - Tenant Admin and Onboarding [WIP]
 - DONE: admin UI foundation, connector settings form, LLM provider/model selection form, chat preview sandbox, document metadata upload action.
 - DONE: admin API endpoints for settings, documents, abuse policy, chat preview.
+- DONE: settings save path now normalizes invalid legacy LLM values on frontend and returns validation issue details from API.
 - TODO: persistent DB-backed storage and credential vault integration.
-- NEXT: replace in-memory stores with SQL-backed repository.
+- NEXT: show field-level validation detail for settings errors directly in the admin form UI.
 
 ### Phase 8 - Hardening and Go-Live [TODO]
 - TODO: automated tests (unit/integration/e2e/load), OWASP hardening, SLO dashboard, canary rollout and rollback playbook.

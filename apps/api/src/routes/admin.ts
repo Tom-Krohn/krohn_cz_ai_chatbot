@@ -8,39 +8,28 @@ import {
 } from '@chat-agent/shared';
 
 import { runChatTurn } from '@chat-agent/ai-core';
-
-const settingsStore = new Map<string, unknown>();
-const documentStore = new Map<string, unknown[]>();
-const abusePolicyStore = new Map<string, unknown>();
+import type { AppVariables } from '../types/hono-context.js';
+import {
+	getTenantSettings,
+	upsertTenantSettings,
+	listKnowledgeDocuments,
+	insertKnowledgeDocument,
+	getAbusePolicy,
+	upsertAbusePolicy,
+	listChatSessions,
+	getChatMessages,
+} from '../lib/db-repository.js';
+import { syncFeed } from '../lib/feed-sync.js';
 
 function readTenantId(context: { get: (name: string) => unknown }): string {
 	return String(context.get('tenantId'));
 }
 
-export const adminRoute = new Hono();
+export const adminRoute = new Hono<{ Variables: AppVariables }>();
 
 adminRoute.get('/settings', async (context) => {
 	const tenantId = readTenantId(context);
-	const stored = settingsStore.get(tenantId);
-
-	if (!stored) {
-		return context.json({
-			settings: {
-				abuseProtectionEnabled: true,
-				connector: {
-					platform: 'prestashop',
-					prestashopApiKeyAlias: 'prestashop-main-key',
-					shoptetPremium: false,
-				},
-				llm: {
-					apiKeyAlias: 'default-key',
-					model: 'gpt-4o-mini',
-					provider: 'openai',
-				},
-			},
-		});
-	}
-
+	const stored = await getTenantSettings(tenantId);
 	return context.json({ settings: stored });
 });
 
@@ -54,6 +43,10 @@ adminRoute.put('/settings', async (context) => {
 				error: {
 					code: 'invalid_admin_settings',
 					message: 'Invalid admin settings payload.',
+					details: parsed.error.issues.map((issue) => ({
+						message: issue.message,
+						path: issue.path.join('.'),
+					})),
 				},
 			},
 			400,
@@ -61,13 +54,13 @@ adminRoute.put('/settings', async (context) => {
 	}
 
 	const tenantId = readTenantId(context);
-	settingsStore.set(tenantId, parsed.data);
+	await upsertTenantSettings(tenantId, parsed.data);
 	return context.json({ saved: true, settings: parsed.data });
 });
 
 adminRoute.get('/documents', async (context) => {
 	const tenantId = readTenantId(context);
-	const documents = documentStore.get(tenantId) || [];
+	const documents = await listKnowledgeDocuments(tenantId);
 	return context.json({ documents });
 });
 
@@ -88,27 +81,13 @@ adminRoute.post('/documents', async (context) => {
 	}
 
 	const tenantId = readTenantId(context);
-	const existing = documentStore.get(tenantId) || [];
-	const nextDocument = {
-		id: `${tenantId}-${existing.length + 1}`,
-		uploadedAt: new Date().toISOString(),
-		...parsed.data,
-	};
-	documentStore.set(tenantId, [...existing, nextDocument]);
-
-	return context.json({ document: nextDocument, queuedForIngestion: true }, 201);
+	const doc = await insertKnowledgeDocument(tenantId, parsed.data);
+	return context.json({ document: doc, queuedForIngestion: true }, 201);
 });
 
 adminRoute.get('/abuse-policy', async (context) => {
 	const tenantId = readTenantId(context);
-	const policy = abusePolicyStore.get(tenantId) || {
-		hardDailyTokenLimit: 120000,
-		hourlyMessageLimitPerIp: 60,
-		hourlyMessageLimitPerTenant: 600,
-		maxInputChars: 2000,
-		softDailyTokenLimit: 80000,
-	};
-
+	const policy = await getAbusePolicy(tenantId);
 	return context.json({ policy });
 });
 
@@ -129,7 +108,7 @@ adminRoute.put('/abuse-policy', async (context) => {
 	}
 
 	const tenantId = readTenantId(context);
-	abusePolicyStore.set(tenantId, parsed.data);
+	await upsertAbusePolicy(tenantId, parsed.data);
 	return context.json({ saved: true, policy: parsed.data });
 });
 
@@ -159,4 +138,38 @@ adminRoute.post('/chat-preview', async (context) => {
 		preview,
 		sandboxMode: true,
 	});
+});
+
+// Conversations log history
+adminRoute.get('/sessions', async (context) => {
+	const tenantId = readTenantId(context);
+	const sessions = await listChatSessions(tenantId);
+	return context.json({ sessions });
+});
+
+adminRoute.get('/sessions/:id/messages', async (context) => {
+	const sessionId = context.req.param('id');
+	const messages = await getChatMessages(sessionId);
+	return context.json({ messages });
+});
+
+// Product feed synchronization trigger
+adminRoute.post('/connector/sync', async (context) => {
+	const tenantId = readTenantId(context);
+	const settings = await getTenantSettings(tenantId);
+
+	if (!settings?.connector?.productFeedUrl) {
+		return context.json(
+			{
+				error: {
+					code: 'missing_feed_url',
+					message: 'Product feed URL is not configured. Please save it in Connector Settings first.',
+				},
+			},
+			400,
+		);
+	}
+
+	const result = await syncFeed(tenantId, settings.connector.productFeedUrl);
+	return context.json(result, result.success ? 200 : 500);
 });

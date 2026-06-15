@@ -4,13 +4,16 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
-		"dev": "tsc -p tsconfig.json --watch",
+		"build": "tsup src/index.ts --format iife --minify --no-sourcemap --clean --out-dir dist",
+		"dev": "tsup src/index.ts --format iife --clean --out-dir dist --watch",
 		"lint": "echo \"lint not configured yet\"",
 		"test": "echo \"test not configured yet\"",
 		"typecheck": "tsc -p tsconfig.json --noEmit"
 	},
 	"dependencies": {
 		"@chat-agent/integrations": "workspace:*"
+	},
+	"devDependencies": {
+		"tsup": "^8.3.5"
 	}
 }

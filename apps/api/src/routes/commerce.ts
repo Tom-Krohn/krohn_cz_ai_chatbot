@@ -2,8 +2,9 @@ import { Hono } from 'hono';
 
 import { addToCart } from '@chat-agent/integrations';
 import { checkoutLeadSchema } from '@chat-agent/shared';
+import type { AppVariables } from '../types/hono-context.js';
 
-export const commerceRoute = new Hono();
+export const commerceRoute = new Hono<{ Variables: AppVariables }>();
 
 commerceRoute.post('/add-to-cart', async (context) => {
 	const payload = await context.req.json();

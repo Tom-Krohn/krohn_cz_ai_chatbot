@@ -17,6 +17,21 @@ app.use('*', errorHandler);
 app.use('/api/*', cors());
 app.route('/health', healthRoute);
 app.route('/retell/webhook', retellWebhookRoute);
+
+app.get('/chat-agent-loader.js', async (context) => {
+	try {
+		const fs = await import('fs/promises');
+		const path = await import('path');
+		const filePath = path.join(process.cwd(), '../widget-runtime/dist/index.global.js');
+		const content = await fs.readFile(filePath, 'utf-8');
+		context.header('Content-Type', 'application/javascript');
+		context.header('Access-Control-Allow-Origin', '*');
+		return context.body(content);
+	} catch (err) {
+		console.error("Failed to serve widget loader:", err);
+		return context.text('Widget loader not compiled yet. Please run build.', 404);
+	}
+});
 app.use('/api/chat/*', tenantAuthMiddleware);
 app.use('/api/commerce/*', tenantAuthMiddleware);
 app.use('/api/admin/*', tenantAuthMiddleware);

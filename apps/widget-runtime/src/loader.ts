@@ -8,6 +8,7 @@ type WidgetOptions = {
 
 type ChatResponse = {
 	message: string;
+	sessionId?: string;
 };
 
 const DEFAULT_API_BASE = 'http://localhost:8787';
@@ -112,9 +113,10 @@ async function sendChatMessage(
 	apiBaseUrl: string,
 	tenantId: string,
 	message: string,
+	sessionId?: string,
 ): Promise<ChatResponse> {
 	const response = await fetch(`${apiBaseUrl}/api/chat`, {
-		body: JSON.stringify({ message }),
+		body: JSON.stringify({ message, sessionId }),
 		headers: {
 			'content-type': 'application/json',
 			'x-tenant-id': tenantId,
@@ -177,6 +179,8 @@ export function mountWidget(options: WidgetOptions): void {
 		panelElement.classList.toggle('open');
 	});
 
+	let activeSessionId = sessionStorage.getItem(`chat_session_${options.tenantId}`) || undefined;
+
 	formElement.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const message = inputElement.value.trim();
@@ -192,7 +196,13 @@ export function mountWidget(options: WidgetOptions): void {
 			options.apiBaseUrl ?? DEFAULT_API_BASE,
 			options.tenantId,
 			message,
+			activeSessionId,
 		);
+
+		if (response.sessionId) {
+			activeSessionId = response.sessionId;
+			sessionStorage.setItem(`chat_session_${options.tenantId}`, response.sessionId);
+		}
 
 		appendMessage(logElement, 'bot', response.message);
 	});
