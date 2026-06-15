@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactElement } from 'react';
 import { 
 	Database, 
 	Settings, 
@@ -46,6 +46,18 @@ const DEFAULT_LLM_INFO: LlmInfo = {
 	apiKeyAlias: 'default-key',
 };
 
+function defaultModelForProvider(provider: Provider): string {
+	switch (provider) {
+		case 'gemini':
+			return 'gemini-2.5-flash';
+		case 'claude':
+			return 'claude-3-5-sonnet-20240620';
+		case 'openai':
+		default:
+			return 'gpt-4o-mini';
+	}
+}
+
 function normalizeLlmInfo(input: unknown): LlmInfo {
 	if (!input || typeof input !== 'object') {
 		return DEFAULT_LLM_INFO;
@@ -55,15 +67,22 @@ function normalizeLlmInfo(input: unknown): LlmInfo {
 	const provider = raw.provider;
 	const model = raw.model;
 	const apiKeyAlias = raw.apiKeyAlias;
+	const normalizedProvider = provider === 'openai' || provider === 'gemini' || provider === 'claude' ? provider : DEFAULT_LLM_INFO.provider;
+	const requestedModel = typeof model === 'string' ? model.trim() : '';
+	const normalizedModel = requestedModel.length >= 2
+		? (normalizedProvider === 'gemini' && (requestedModel === 'gemini-1.5-flash' || requestedModel === 'gemini-1.5-pro')
+			? defaultModelForProvider('gemini')
+			: requestedModel)
+		: defaultModelForProvider(normalizedProvider);
 
 	return {
-		provider: provider === 'openai' || provider === 'gemini' || provider === 'claude' ? provider : DEFAULT_LLM_INFO.provider,
-		model: typeof model === 'string' && model.trim().length >= 2 ? model.trim() : DEFAULT_LLM_INFO.model,
+		provider: normalizedProvider,
+		model: normalizedModel,
 		apiKeyAlias: typeof apiKeyAlias === 'string' && apiKeyAlias.trim().length >= 3 ? apiKeyAlias.trim() : DEFAULT_LLM_INFO.apiKeyAlias,
 	};
 }
 
-export function App(): JSX.Element {
+export function App(): ReactElement {
 	const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 	const [platform, setPlatform] = useState('custom-feed');
 	const [feedUrl, setFeedUrl] = useState('');
@@ -248,7 +267,16 @@ export function App(): JSX.Element {
 				const data = await response.json();
 				setPreviewMessages(prev => [...prev, { role: 'assistant', content: data.preview?.message || 'Bez odpovědi.' }]);
 			} else {
-				setPreviewMessages(prev => [...prev, { role: 'assistant', content: 'Chyba: Nepodařilo se kontaktovat asistenta.' }]);
+				let detail = '';
+				try {
+					const errorBody = await response.json();
+					if (errorBody?.error?.message) {
+						detail = ` (${errorBody.error.message})`;
+					}
+				} catch {
+					// Keep generic message when response body is not JSON.
+				}
+				setPreviewMessages(prev => [...prev, { role: 'assistant', content: `Chyba: Nepodařilo se kontaktovat asistenta.${detail}` }]);
 			}
 		} catch (e) {
 			setPreviewMessages(prev => [...prev, { role: 'assistant', content: 'Chyba sítě.' }]);
@@ -276,9 +304,9 @@ export function App(): JSX.Element {
 						</div>
 						<div>
 							<h1 className="font-bold text-lg leading-tight tracking-wide bg-gradient-to-r from-white via-indigo-200 to-purple-400 bg-clip-text text-transparent">
-								JellyChat
+								CartFlow AI
 							</h1>
-							<span className="text-xs text-indigo-400 font-medium tracking-wider uppercase">Beta Admin</span>
+							<span className="text-xs text-indigo-400 font-medium tracking-wider">by Kröhn Labs</span>
 						</div>
 					</div>
 
@@ -355,7 +383,7 @@ export function App(): JSX.Element {
 
 				{/* Footer Info */}
 				<div className="p-4 border-t border-[#1e1a3d] text-center text-xs text-slate-500">
-					<div>Verze 0.1.0 Beta</div>
+					<div>Verze 0.2.0 Beta</div>
 					<div className="mt-1 flex items-center justify-center gap-1.5 text-indigo-400 font-medium">
 						<span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
 						Připojeno k DB
@@ -375,7 +403,7 @@ export function App(): JSX.Element {
 					</div>
 					<div className="flex items-center gap-4">
 						<div className="text-right text-xs">
-							<div className="font-semibold text-slate-300">Model z .env:</div>
+							<div className="font-semibold text-slate-300">Aktivní model tenantu:</div>
 							<div className="text-indigo-400 font-mono">{llmInfo.model}</div>
 						</div>
 						<div className="h-8 w-px bg-[#1e1a3d]"></div>
@@ -438,7 +466,7 @@ export function App(): JSX.Element {
 								<div className="bg-[#0c0a1e]/40 border border-[#1e1a3d] rounded-2xl p-6 shadow-md">
 									<h3 className="text-sm font-semibold tracking-wider text-slate-300 uppercase flex items-center gap-2 mb-4">
 										<Info className="h-4 w-4 text-indigo-400" />
-										Konfigurace z .env (Jednotná)
+										Aktivní LLM konfigurace tenantu
 									</h3>
 									<div className="space-y-3 text-sm">
 										<div className="flex justify-between py-2 border-b border-[#1a163a]">
@@ -453,7 +481,7 @@ export function App(): JSX.Element {
 											<span className="text-slate-400">Status API Klíče:</span>
 											<span className="text-emerald-400 font-semibold flex items-center gap-1.5">
 												<span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-												Nastaven v .env
+												Použije se klíč z .env dle providera
 											</span>
 										</div>
 									</div>
@@ -494,7 +522,7 @@ export function App(): JSX.Element {
 						<div className="bg-[#0c0a1e]/60 border border-[#1e1a3d] rounded-2xl p-6 shadow-lg space-y-6">
 							<div>
 								<h2 className="text-lg font-bold text-white tracking-wide">Konektory & Nastavení</h2>
-								<p className="text-xs text-slate-400 mt-0.5">Nakonfigurujte e-shop propojení. Nastavení LLM je sdílené v .env souboru.</p>
+								<p className="text-xs text-slate-400 mt-0.5">Nakonfigurujte e-shop propojení. API klíče zůstávají v .env, ale provider/model lze přepínat per tenant.</p>
 							</div>
 
 							<div className="space-y-4">
@@ -554,24 +582,40 @@ export function App(): JSX.Element {
 								)}
 
 								<div className="border-t border-[#1e1a3d] pt-4 mt-6">
-									<h3 className="text-xs font-semibold tracking-wider text-slate-500 uppercase mb-3">LLM Poskytovatel (Jen pro čtení)</h3>
-									<div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#09071c] p-4 rounded-xl border border-[#1c183a] text-xs">
-										<div>
-											<span className="text-slate-500 uppercase tracking-wider">Provider</span>
-											<p className="font-bold text-white mt-1 capitalize">{llmInfo.provider}</p>
-										</div>
-										<div>
-											<span className="text-slate-500 uppercase tracking-wider">Model</span>
-											<p className="font-bold text-indigo-400 font-mono mt-1">{llmInfo.model}</p>
-										</div>
-										<div>
-											<span className="text-slate-500 uppercase tracking-wider">Klíč z .env</span>
-											<p className="font-bold text-emerald-400 mt-1 flex items-center gap-1">
-												<span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-												Aktivní (Globální)
-											</p>
-										</div>
+									<h3 className="text-xs font-semibold tracking-wider text-slate-500 uppercase mb-3">LLM Nastavení tenantu</h3>
+									<div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-[#09071c] p-4 rounded-xl border border-[#1c183a] text-xs">
+										<label className="flex flex-col gap-1.5 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Provider</span>
+											<select
+												className="bg-[#120f2d] border border-[#2b255c] rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500 transition-colors"
+												value={llmInfo.provider}
+												onChange={(e) => {
+													const nextProvider = e.target.value as Provider;
+													setLlmInfo((prev) => ({
+														...prev,
+														provider: nextProvider,
+														model: defaultModelForProvider(nextProvider),
+													}));
+												}}
+											>
+												<option value="openai">OpenAI</option>
+												<option value="gemini">Gemini</option>
+												<option value="claude">Claude</option>
+											</select>
+										</label>
+
+										<label className="flex flex-col gap-1.5 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Model</span>
+											<input
+												type="text"
+												className="bg-[#120f2d] border border-[#2b255c] rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500 transition-colors"
+												placeholder={defaultModelForProvider(llmInfo.provider)}
+												value={llmInfo.model}
+												onChange={(e) => setLlmInfo((prev) => ({ ...prev, model: e.target.value }))}
+											/>
+										</label>
 									</div>
+									<p className="text-[11px] text-slate-500 mt-2">Použije se API klíč z .env podle vybraného providera (OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY).</p>
 								</div>
 
 								<div className="flex items-center gap-3 pt-4">

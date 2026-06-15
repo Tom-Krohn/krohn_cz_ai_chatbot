@@ -37,6 +37,8 @@
 ### Phase 4 - Conversational Commerce Tools [WIP]
 - DONE: tool-calling skeleton in ai-core, commerce route placeholders.
 - WIP: admin chat preview endpoint reusing shared orchestration.
+- DONE: upgraded AI SDK provider packages to compatible versions so chat-preview no longer fails with unsupported model version.
+- DONE: chat-preview and widget chat now use tenant-selected provider/model from admin settings while API keys remain in .env.
 - TODO: production adapter execution for PrestaShop 8.2 first, then Shoptet/Woo/Shopify with retries and circuit breaker.
 - NEXT: implement PrestaShop 8.2 module/webservice bridge and deterministic execution logs.
 
@@ -54,8 +56,10 @@
 - DONE: admin UI foundation, connector settings form, LLM provider/model selection form, chat preview sandbox, document metadata upload action.
 - DONE: admin API endpoints for settings, documents, abuse policy, chat preview.
 - DONE: settings save path now normalizes invalid legacy LLM values on frontend and returns validation issue details from API.
+- DONE: sandbox chat preview now surfaces backend error detail instead of generic failure message.
+- DONE: admin settings page now allows switching LLM provider/model per tenant and clarifies env-key usage.
 - TODO: persistent DB-backed storage and credential vault integration.
-- NEXT: show field-level validation detail for settings errors directly in the admin form UI.
+- NEXT: expose backend-reported provider key availability in admin UI to pre-validate selected provider before save.
 
 ### Phase 8 - Hardening and Go-Live [TODO]
 - TODO: automated tests (unit/integration/e2e/load), OWASP hardening, SLO dashboard, canary rollout and rollback playbook.

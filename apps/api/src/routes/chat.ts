@@ -5,6 +5,7 @@ import type { AppVariables } from '../types/hono-context.js';
 import {
 	createChatSession,
 	insertChatMessage,
+	getTenantSettings,
 	searchProductEmbeddings,
 } from '../lib/db-repository.js';
 
@@ -38,10 +39,11 @@ chatRoute.post('/', async (context) => {
 	}
 
 	// Run Chat turn with prompt injected products context
+	const settings = await getTenantSettings(tenantId);
 	const result = await runChatTurn({
 		message,
 		tenantId,
-	}, productsContext);
+	}, productsContext, settings?.llm);
 
 	// Log bot response
 	await insertChatMessage(sessionId, 'assistant', result.message);

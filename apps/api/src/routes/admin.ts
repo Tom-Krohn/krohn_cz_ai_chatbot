@@ -129,10 +129,11 @@ adminRoute.post('/chat-preview', async (context) => {
 	}
 
 	const tenantId = readTenantId(context);
+	const settings = await getTenantSettings(tenantId);
 	const preview = await runChatTurn({
 		message: parsed.data.message,
 		tenantId,
-	});
+	}, undefined, settings?.llm);
 
 	return context.json({
 		preview,

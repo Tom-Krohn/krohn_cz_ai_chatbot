@@ -15,26 +15,99 @@ export type ProductContextItem = {
 	};
 };
 
-function getLlmModel() {
+export type LlmProvider = 'openai' | 'gemini' | 'claude';
+
+export type LlmRuntimeConfig = {
+	provider: LlmProvider;
+	model: string;
+};
+
+function isConfiguredKey(value: string | undefined): boolean {
+	if (!value) {
+		return false;
+	}
+
+	const trimmed = value.trim();
+	return trimmed.length > 0
+		&& trimmed !== 'mock-openai-key-value-for-testing'
+		&& trimmed !== 'mock-gemini-key-value-for-testing'
+		&& trimmed !== 'mock-anthropic-key-value-for-testing';
+}
+
+function defaultModelForProvider(provider: LlmProvider): string {
+	switch (provider) {
+		case 'gemini':
+			return 'gemini-2.5-flash';
+		case 'claude':
+			return 'claude-3-5-sonnet-20240620';
+		case 'openai':
+		default:
+			return 'gpt-4o-mini';
+	}
+}
+
+function normalizeModelId(provider: LlmProvider, model: string | undefined): string {
+	const trimmed = model?.trim();
+	if (!trimmed) {
+		return defaultModelForProvider(provider);
+	}
+
+	if (provider === 'gemini' && (trimmed === 'gemini-1.5-flash' || trimmed === 'gemini-1.5-pro')) {
+		return defaultModelForProvider('gemini');
+	}
+
+	return trimmed;
+}
+
+function getLlmModel(config?: LlmRuntimeConfig) {
 	const openaiKey = process.env.OPENAI_API_KEY;
 	const geminiKey = process.env.GEMINI_API_KEY;
 	const anthropicKey = process.env.ANTHROPIC_API_KEY;
+	const selectedProvider = config?.provider;
+	const selectedModel = config?.model?.trim();
 
-	if (geminiKey && geminiKey !== 'mock-gemini-key-value-for-testing') {
+	if (selectedProvider) {
+		if (selectedProvider === 'gemini') {
+			if (!isConfiguredKey(geminiKey)) {
+				throw new Error('Gemini API key is not configured in .env (GEMINI_API_KEY).');
+			}
+			const google = createGoogleGenerativeAI({ apiKey: geminiKey });
+			return google(normalizeModelId('gemini', selectedModel));
+		}
+
+		if (selectedProvider === 'claude') {
+			if (!isConfiguredKey(anthropicKey)) {
+				throw new Error('Anthropic API key is not configured in .env (ANTHROPIC_API_KEY).');
+			}
+			const anthropic = createAnthropic({ apiKey: anthropicKey });
+			return anthropic(normalizeModelId('claude', selectedModel));
+		}
+
+		if (!isConfiguredKey(openaiKey)) {
+			throw new Error('OpenAI API key is not configured in .env (OPENAI_API_KEY).');
+		}
+		const openai = createOpenAI({ apiKey: openaiKey });
+		return openai(normalizeModelId('openai', selectedModel));
+	}
+
+	if (isConfiguredKey(geminiKey)) {
 		const google = createGoogleGenerativeAI({ apiKey: geminiKey });
-		return google('gemini-1.5-flash');
+		return google(defaultModelForProvider('gemini'));
 	}
 
-	if (anthropicKey && anthropicKey !== 'mock-anthropic-key-value-for-testing') {
+	if (isConfiguredKey(anthropicKey)) {
 		const anthropic = createAnthropic({ apiKey: anthropicKey });
-		return anthropic('claude-3-5-sonnet-20240620');
+		return anthropic(defaultModelForProvider('claude'));
 	}
 
-	// Default to OpenAI
+	if (!isConfiguredKey(openaiKey)) {
+		throw new Error('No valid LLM API key found in .env. Configure OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY.');
+	}
+
 	const openai = createOpenAI({
-		apiKey: openaiKey || 'mock-openai-key-value-for-testing',
+		apiKey: openaiKey,
 	});
-	return openai('gpt-4o-mini');
+	return openai(defaultModelForProvider('openai'));
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -63,10 +136,11 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 export async function runChatTurn(
 	input: ChatTurnInput,
-	productsContext?: ProductContextItem[]
+	productsContext?: ProductContextItem[],
+	llmConfig?: LlmRuntimeConfig
 ): Promise<{ message: string }> {
 	const validatedInput = chatTurnInputSchema.parse(input);
-	const model = getLlmModel();
+	const model = getLlmModel(llmConfig);
 
 	const systemPrompt = `Jste inteligentní nákupní asistent. Vaším úkolem je pomoci zákazníkovi vybrat produkt nebo službu, která vyřeší jeho problém.
 U zákaznických dotazů buďte vstřícní, věcní a profesionální. Odpovídejte v českém jazyce.
