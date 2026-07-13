@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS product_embeddings (
 	tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
 	product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
 	chunk_text TEXT NOT NULL,
-	embedding VECTOR(1536) NOT NULL,
+	embedding VECTOR(768) NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

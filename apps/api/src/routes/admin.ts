@@ -8,6 +8,7 @@ import {
 } from '@chat-agent/shared';
 
 import { runChatTurn } from '@chat-agent/ai-core';
+import { generateEmbedding } from '@chat-agent/ai-core';
 import type { AppVariables } from '../types/hono-context.js';
 import {
 	getTenantSettings,
@@ -18,8 +19,10 @@ import {
 	upsertAbusePolicy,
 	listChatSessions,
 	getChatMessages,
+	clearAllMemory,
+	insertKnowledgeChunk,
 } from '../lib/db-repository.js';
-import { syncFeed } from '../lib/feed-sync.js';
+import { syncFeed, chunkText } from '../lib/feed-sync.js';
 
 function readTenantId(context: { get: (name: string) => unknown }): string {
 	return String(context.get('tenantId'));
@@ -173,4 +176,113 @@ adminRoute.post('/connector/sync', async (context) => {
 
 	const result = await syncFeed(tenantId, settings.connector.productFeedUrl);
 	return context.json(result, result.success ? 200 : 500);
+});
+
+// RAG memory management: delete entire memory for this tenant
+adminRoute.delete('/memory', async (context) => {
+	const tenantId = readTenantId(context);
+	try {
+		await clearAllMemory(tenantId);
+		return context.json({ success: true, message: 'Veškerá paměť RAG byla smazána.' });
+	} catch (err: any) {
+		return context.json({ success: false, message: err.message }, 500);
+	}
+});
+
+// Knowledge ingestion: plain text or textarea input
+adminRoute.post('/knowledge/text', async (context) => {
+	const tenantId = readTenantId(context);
+	let payload: { text?: string; sourceName?: string };
+	try {
+		payload = await context.req.json();
+	} catch {
+		return context.json({ error: { code: 'invalid_body', message: 'Expected JSON body.' } }, 400);
+	}
+
+	const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+	const sourceName = typeof payload.sourceName === 'string' && payload.sourceName.trim()
+		? payload.sourceName.trim()
+		: 'Ruční zápis';
+
+	if (text.length < 10) {
+		return context.json({ error: { code: 'text_too_short', message: 'Text musí mít alespoň 10 znaků.' } }, 400);
+	}
+
+	const chunks = chunkText(text);
+	const savedChunks: string[] = [];
+
+	for (const chunk of chunks) {
+		try {
+			const embedding = await generateEmbedding(chunk);
+			await insertKnowledgeChunk(tenantId, sourceName, chunk, embedding);
+			savedChunks.push(chunk.slice(0, 60));
+		} catch (err: any) {
+			console.error('Failed to embed knowledge chunk:', err.message);
+		}
+	}
+
+	return context.json({
+		success: true,
+		message: `Uloženo ${savedChunks.length} z ${chunks.length} fragmentů do paměti RAG.`,
+		chunksTotal: chunks.length,
+		chunksSaved: savedChunks.length,
+	});
+});
+
+// Knowledge ingestion: file upload (TXT, MD, CSV)
+adminRoute.post('/knowledge/file', async (context) => {
+	const tenantId = readTenantId(context);
+
+	let body: FormData;
+	try {
+		body = await context.req.formData();
+	} catch {
+		return context.json({ error: { code: 'invalid_form', message: 'Expected multipart/form-data.' } }, 400);
+	}
+
+	const file = body.get('file');
+	const sourceName = String(body.get('sourceName') || '');
+
+	if (!(file instanceof File)) {
+		return context.json({ error: { code: 'missing_file', message: 'Soubor nebyl nahrán.' } }, 400);
+	}
+
+	const allowed = ['text/plain', 'text/markdown', 'text/csv', 'application/csv', 'text/x-csv'];
+	const ext = file.name.split('.').pop()?.toLowerCase();
+	const isAllowedExt = ['txt', 'md', 'csv', 'markdown'].includes(ext ?? '');
+
+	if (!allowed.includes(file.type) && !isAllowedExt) {
+		return context.json({
+			error: {
+				code: 'unsupported_file_type',
+				message: `Nepodporovaný formát souboru. Povolené: TXT, MD, CSV. Nahraný typ: ${file.type || ext}`,
+			},
+		}, 400);
+	}
+
+	const text = await file.text();
+	if (text.trim().length < 10) {
+		return context.json({ error: { code: 'empty_file', message: 'Soubor je prázdný nebo příliš krátký.' } }, 400);
+	}
+
+	const name = sourceName.trim() || file.name;
+	const chunks = chunkText(text);
+	let chunksSaved = 0;
+
+	for (const chunk of chunks) {
+		try {
+			const embedding = await generateEmbedding(chunk);
+			await insertKnowledgeChunk(tenantId, name, chunk, embedding);
+			chunksSaved++;
+		} catch (err: any) {
+			console.error('Failed to embed file chunk:', err.message);
+		}
+	}
+
+	return context.json({
+		success: true,
+		message: `Soubor „${name}“ uložen. Zpracováno ${chunksSaved} z ${chunks.length} fragmentů.`,
+		chunksTotal: chunks.length,
+		chunksSaved,
+	});
 });

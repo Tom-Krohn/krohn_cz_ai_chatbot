@@ -314,6 +314,53 @@ export async function insertProductEmbedding(tenantId: string, productId: string
 	);
 }
 
+export async function deleteProductEmbeddingsByProductId(productId: string) {
+	await query(`DELETE FROM product_embeddings WHERE product_id = $1`, [productId]);
+}
+
+export async function clearAllMemory(tenantId: string) {
+	const uuid = getTenantUuid(tenantId);
+	// product_embeddings has ON DELETE CASCADE from products, so deleting products
+	// will automatically delete their embeddings.
+	// But we also need to clear standalone knowledge chunks (external_id prefix 'doc:').
+	await query(`DELETE FROM products WHERE tenant_id = $1`, [uuid]);
+}
+
+export async function insertKnowledgeChunk(
+	tenantId: string,
+	sourceName: string,
+	chunkText: string,
+	embedding: number[]
+) {
+	const uuid = getTenantUuid(tenantId);
+	const externalId = `doc:${crypto.randomUUID()}`;
+	const productId = crypto.randomUUID();
+
+	// Store document chunks as pseudo-products for unified RAG retrieval
+	await query(
+		`INSERT INTO products (id, tenant_id, external_id, title, description, metadata, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+		[
+			productId,
+			uuid,
+			externalId,
+			sourceName,
+			chunkText,
+			JSON.stringify({ source_type: 'document', source_name: sourceName }),
+		]
+	);
+
+	const vectorStr = `[${embedding.join(',')}]`;
+	const embeddingId = crypto.randomUUID();
+	await query(
+		`INSERT INTO product_embeddings (id, tenant_id, product_id, chunk_text, embedding, created_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW())`,
+		[embeddingId, uuid, productId, chunkText, vectorStr]
+	);
+
+	return productId;
+}
+
 export async function searchProductEmbeddings(tenantId: string, queryEmbedding: number[], limit = 5) {
 	const uuid = getTenantUuid(tenantId);
 	const vectorStr = `[${queryEmbedding.join(',')}]`;

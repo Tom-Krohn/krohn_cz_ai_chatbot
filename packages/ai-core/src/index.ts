@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { generateText, embed } from 'ai';
+import { generateText, embed, embedMany } from 'ai';
 
 import { chatTurnInputSchema, type ChatTurnInput } from '@chat-agent/shared';
 
@@ -117,22 +117,67 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 	if (geminiKey && geminiKey !== 'mock-gemini-key-value-for-testing') {
 		const google = createGoogleGenerativeAI({ apiKey: geminiKey });
 		const { embedding } = await embed({
-			model: google.textEmbeddingModel('text-embedding-004') as any,
+			model: google.textEmbeddingModel('gemini-embedding-001') as any,
 			value: text,
+			providerOptions: {
+				google: {
+					outputDimensionality: 768,
+				},
+			},
 		});
 		return embedding;
 	}
 
-	// Default to OpenAI embedding model
+	// Default to OpenAI embedding model, requesting 768 dimensions to match Gemini's default size
 	const openai = createOpenAI({
 		apiKey: openaiKey || 'mock-openai-key-value-for-testing',
 	});
 	const { embedding } = await embed({
 		model: openai.embedding('text-embedding-3-small') as any,
 		value: text,
+		providerOptions: {
+			openai: {
+				dimensions: 768,
+			},
+		},
 	});
 	return embedding;
 }
+
+export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+	const openaiKey = process.env.OPENAI_API_KEY;
+	const geminiKey = process.env.GEMINI_API_KEY;
+
+	if (geminiKey && geminiKey !== 'mock-gemini-key-value-for-testing') {
+		const google = createGoogleGenerativeAI({ apiKey: geminiKey });
+		const { embeddings } = await embedMany({
+			model: google.textEmbeddingModel('gemini-embedding-001') as any,
+			values: texts,
+			providerOptions: {
+				google: {
+					outputDimensionality: 768,
+				},
+			},
+		});
+		return embeddings;
+	}
+
+	// Default to OpenAI embedding model, requesting 768 dimensions to match Gemini's default size
+	const openai = createOpenAI({
+		apiKey: openaiKey || 'mock-openai-key-value-for-testing',
+	});
+	const { embeddings } = await embedMany({
+		model: openai.embedding('text-embedding-3-small') as any,
+		values: texts,
+		providerOptions: {
+			openai: {
+				dimensions: 768,
+			},
+		},
+	});
+	return embeddings;
+}
+
 
 export async function runChatTurn(
 	input: ChatTurnInput,

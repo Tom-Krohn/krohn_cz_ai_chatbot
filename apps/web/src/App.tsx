@@ -14,7 +14,10 @@ import {
 	Info,
 	Cpu,
 	Users,
-	FileText
+	FileText,
+	Trash2,
+	Upload,
+	AlertTriangle
 } from 'lucide-react';
 
 type Provider = 'openai' | 'gemini' | 'claude';
@@ -96,6 +99,24 @@ export function App(): ReactElement {
 	// Sync state
 	const [syncing, setSyncing] = useState(false);
 	const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; stats?: { totalParsed: number; totalEmbedded: number } } | null>(null);
+
+	// Knowledge Base (RAG) Text Ingestion
+	const [textInput, setTextInput] = useState('');
+	const [textSourceName, setTextSourceName] = useState('');
+	const [textIngesting, setTextIngesting] = useState(false);
+	const [textIngestResult, setTextIngestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+	// Knowledge Base (RAG) File Ingestion
+	const [fileInput, setFileInput] = useState<File | null>(null);
+	const [fileSourceName, setFileSourceName] = useState('');
+	const [fileIngesting, setFileIngesting] = useState(false);
+	const [fileIngestResult, setFileIngestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+	// Danger Zone: Delete Memory
+	const [showDeleteModal, setShowDeleteModal] = useState(false);
+	const [deleteConfirmText, setDeleteConfirmText] = useState('');
+	const [deleting, setDeleting] = useState(false);
+	const [deleteResult, setDeleteResult] = useState<{ success: boolean; message: string } | null>(null);
 	
 	// Sandbox state
 	const [previewInput, setPreviewInput] = useState('Doporuč mi nějaké běžecké boty');
@@ -246,6 +267,93 @@ export function App(): ReactElement {
 		}
 	}
 
+	async function ingestText(): Promise<void> {
+		if (!textInput.trim() || textIngesting) return;
+		setTextIngesting(true);
+		setTextIngestResult(null);
+		try {
+			const response = await fetch(`${apiBaseUrl}/api/admin/knowledge/text`, {
+				method: 'POST',
+				headers: {
+					...tenantHeader,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify({
+					text: textInput,
+					sourceName: textSourceName || undefined,
+				}),
+			});
+			const data = await response.json();
+			if (response.ok && data.success) {
+				setTextIngestResult({ success: true, message: data.message });
+				setTextInput('');
+				setTextSourceName('');
+			} else {
+				setTextIngestResult({ success: false, message: data.error?.message || 'Uložení selhalo.' });
+			}
+		} catch (e) {
+			setTextIngestResult({ success: false, message: 'Spojení se serverem selhalo.' });
+		} finally {
+			setTextIngesting(false);
+		}
+	}
+
+	async function ingestFile(e: React.FormEvent): Promise<void> {
+		e.preventDefault();
+		if (!fileInput || fileIngesting) return;
+		setFileIngesting(true);
+		setFileIngestResult(null);
+
+		const formData = new FormData();
+		formData.append('file', fileInput);
+		formData.append('sourceName', fileSourceName);
+
+		try {
+			const response = await fetch(`${apiBaseUrl}/api/admin/knowledge/file`, {
+				method: 'POST',
+				headers: tenantHeader,
+				body: formData,
+			});
+			const data = await response.json();
+			if (response.ok && data.success) {
+				setFileIngestResult({ success: true, message: data.message });
+				setFileInput(null);
+				setFileSourceName('');
+			} else {
+				setFileIngestResult({ success: false, message: data.error?.message || 'Nahrání souboru selhalo.' });
+			}
+		} catch (e) {
+			setFileIngestResult({ success: false, message: 'Spojení se serverem selhalo.' });
+		} finally {
+			setFileIngesting(false);
+		}
+	}
+
+	async function deleteMemory(): Promise<void> {
+		if (deleteConfirmText !== 'SMAZAT PAMĚŤ' || deleting) return;
+		setDeleting(true);
+		setDeleteResult(null);
+		try {
+			const response = await fetch(`${apiBaseUrl}/api/admin/memory`, {
+				method: 'DELETE',
+				headers: tenantHeader,
+			});
+			const data = await response.json();
+			if (response.ok && data.success) {
+				setDeleteResult({ success: true, message: data.message });
+				setShowDeleteModal(false);
+				setDeleteConfirmText('');
+				setSyncResult(null);
+			} else {
+				setDeleteResult({ success: false, message: data.message || 'Smazání selhalo.' });
+			}
+		} catch (e) {
+			setDeleteResult({ success: false, message: 'Spojení se serverem selhalo.' });
+		} finally {
+			setDeleting(false);
+		}
+	}
+
 	async function sendPreviewMessage(): Promise<void> {
 		if (!previewInput.trim() || previewLoading) return;
 		const userMsg = previewInput;
@@ -343,7 +451,7 @@ export function App(): ReactElement {
 							}`}
 						>
 							<Database className="h-4 w-4" />
-							Učení (XML Feed)
+							Znalostní báze
 						</button>
 						<button
 							onClick={() => setActiveTab('history')}
@@ -644,11 +752,15 @@ export function App(): ReactElement {
 
 					{activeTab === 'ingestion' && (
 						<div className="space-y-6">
-							<div className="bg-[#0c0a1e]/60 border border-[#1e1a3d] rounded-2xl p-6 shadow-lg space-y-6">
+							{/* Feed Ingestion */}
+							<div className="bg-[#0c0a1e]/60 border border-[#1e1a3d] rounded-2xl p-6 shadow-lg space-y-4">
 								<div>
-									<h2 className="text-lg font-bold text-white tracking-wide">Učení a synchronizace paměti RAG</h2>
+									<h2 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+										<RefreshCw className="h-5 w-5 text-indigo-400" />
+										Synchronizace XML Feedů
+									</h2>
 									<p className="text-xs text-slate-400 mt-0.5">
-										Spusťte stahování a vektorový ingest Heureka/Zboží XML produktového feedu. Vytvoříte tak sémantickou paměť pro agenta.
+										Spusťte stahování a vektorový ingest Heureka/Zboží XML produktového feedu. Synchronizace nepřepisuje ručně přidané dokumenty.
 									</p>
 								</div>
 
@@ -702,6 +814,177 @@ export function App(): ReactElement {
 												</div>
 											)}
 										</div>
+									</div>
+								)}
+							</div>
+
+							{/* Custom Text Ingestion */}
+							<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+								<div className="bg-[#0c0a1e]/60 border border-[#1e1a3d] rounded-2xl p-6 shadow-lg space-y-4">
+									<div>
+										<h2 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+											<FileText className="h-5 w-5 text-purple-400" />
+											Vložit text nebo poznámku
+										</h2>
+										<p className="text-xs text-slate-400 mt-0.5">
+											Zadejte textové informace přímo (např. otevírací doba, ceníky, informace o firmě).
+										</p>
+									</div>
+
+									<div className="space-y-3">
+										<label className="flex flex-col gap-1 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Název zdroje (např. Otevírací doba)</span>
+											<input 
+												type="text"
+												className="bg-[#120f2d] border border-[#2b255c] rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500 transition-colors"
+												placeholder="Moje poznámka" 
+												value={textSourceName}
+												onChange={(e) => setTextSourceName(e.target.value)}
+											/>
+										</label>
+
+										<label className="flex flex-col gap-1 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Obsah textu (min. 10 znaků)</span>
+											<textarea 
+												rows={6}
+												className="bg-[#120f2d] border border-[#2b255c] rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500 transition-colors resize-none placeholder:text-slate-600 font-sans"
+												placeholder="Zde vložte libovolný text, který se má agent naučit..." 
+												value={textInput}
+												onChange={(e) => setTextInput(e.target.value)}
+											/>
+										</label>
+
+										<button 
+											onClick={ingestText}
+											disabled={textIngesting || !textInput.trim()}
+											className={`w-full rounded-xl py-2.5 px-4 text-sm font-semibold shadow-md flex items-center justify-center gap-2 transition duration-200 ${
+												textIngesting || !textInput.trim()
+													? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+													: 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white'
+											}`}
+										>
+											{textIngesting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+											{textIngesting ? 'Ukládám do paměti...' : 'Uložit do paměti'}
+										</button>
+
+										{textIngestResult && (
+											<div className={`p-3 rounded-xl border text-[11px] ${
+												textIngestResult.success 
+													? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-300' 
+													: 'bg-rose-950/20 border-rose-500/20 text-rose-300'
+											}`}>
+												{textIngestResult.message}
+											</div>
+										)}
+									</div>
+								</div>
+
+								{/* File Upload Ingestion */}
+								<div className="bg-[#0c0a1e]/60 border border-[#1e1a3d] rounded-2xl p-6 shadow-lg space-y-4">
+									<div>
+										<h2 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+											<Upload className="h-5 w-5 text-indigo-400" />
+											Nahrát dokument (TXT, MD, CSV)
+										</h2>
+										<p className="text-xs text-slate-400 mt-0.5">
+											Nahrajte soubory, které obsahují strukturované nebo nestrukturované informace.
+										</p>
+									</div>
+
+									<form onSubmit={ingestFile} className="space-y-3">
+										<label className="flex flex-col gap-1 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Název zdroje (volitelné)</span>
+											<input 
+												type="text"
+												className="bg-[#120f2d] border border-[#2b255c] rounded-xl px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500 transition-colors"
+												placeholder="Název souboru / dokumentu" 
+												value={fileSourceName}
+												onChange={(e) => setFileSourceName(e.target.value)}
+											/>
+										</label>
+
+										<div className="flex flex-col gap-1 text-xs text-slate-400">
+											<span className="font-semibold uppercase tracking-wider text-slate-500">Výběr souboru</span>
+											<div className="bg-[#120f2d] border border-dashed border-[#2b255c] hover:border-indigo-500 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors relative">
+												<input 
+													type="file"
+													accept=".txt,.md,.csv,.markdown"
+													className="absolute inset-0 opacity-0 cursor-pointer"
+													onChange={(e) => setFileInput(e.target.files?.[0] || null)}
+												/>
+												<Upload className="h-8 w-8 text-indigo-400/60 mb-2" />
+												<span className="text-xs font-semibold text-slate-300">
+													{fileInput ? fileInput.name : 'Vyberte soubor (TXT, MD, CSV)'}
+												</span>
+												{fileInput && (
+													<span className="text-[10px] text-slate-500 mt-1">
+														Velikost: {(fileInput.size / 1024).toFixed(1)} KB
+													</span>
+												)}
+											</div>
+										</div>
+
+										<button 
+											type="submit"
+											disabled={fileIngesting || !fileInput}
+											className={`w-full rounded-xl py-2.5 px-4 text-sm font-semibold shadow-md flex items-center justify-center gap-2 transition duration-200 ${
+												fileIngesting || !fileInput
+													? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+													: 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white'
+											}`}
+										>
+											{fileIngesting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+											{fileIngesting ? 'Nahrávám a indexuji...' : 'Nahrát a indexovat'}
+										</button>
+
+										{fileIngestResult && (
+											<div className={`p-3 rounded-xl border text-[11px] ${
+												fileIngestResult.success 
+													? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-300' 
+													: 'bg-rose-950/20 border-rose-500/20 text-rose-300'
+											}`}>
+												{fileIngestResult.message}
+											</div>
+										)}
+									</form>
+								</div>
+							</div>
+
+							{/* Danger Zone */}
+							<div className="bg-[#170c1e]/40 border border-[#ff3b3b]/20 rounded-2xl p-6 shadow-lg space-y-4">
+								<div>
+									<h2 className="text-lg font-bold text-red-400 tracking-wide flex items-center gap-2">
+										<Trash2 className="h-5 w-5 text-red-500" />
+										Nebezpečná zóna
+									</h2>
+									<p className="text-xs text-slate-400 mt-0.5">
+										Následující akce jsou destruktivní a nelze je vzít zpět.
+									</p>
+								</div>
+
+								<div className="bg-[#120914] border border-[#ff3b3b]/10 p-4 rounded-xl flex items-center justify-between">
+									<div>
+										<span className="font-bold text-sm text-slate-200 block">Smazat veškerou paměť RAG</span>
+										<span className="text-xs text-slate-500">
+											Odstraní všechny synchronizované produkty i ručně nahrané dokumenty.
+										</span>
+									</div>
+
+									<button 
+										onClick={() => { setShowDeleteModal(true); setDeleteResult(null); }}
+										className="bg-red-950/40 hover:bg-red-900/60 border border-red-700/30 hover:border-red-500 text-red-300 hover:text-white rounded-xl py-2 px-6 text-sm font-semibold transition duration-200"
+									>
+										Smazat paměť RAG
+									</button>
+								</div>
+
+								{deleteResult && (
+									<div className={`p-3 rounded-xl border text-[11px] ${
+										deleteResult.success 
+											? 'bg-emerald-950/20 border-emerald-500/20 text-emerald-300' 
+											: 'bg-rose-950/20 border-rose-500/20 text-rose-300'
+									}`}>
+										{deleteResult.message}
 									</div>
 								)}
 							</div>
@@ -928,6 +1211,49 @@ export function App(): ReactElement {
 					)}
 				</main>
 			</div>
+
+			{showDeleteModal && (
+				<div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-200">
+					<div className="bg-[#0c0a1e] border border-red-500/30 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
+						<div className="flex items-center gap-3 text-red-400">
+							<AlertTriangle className="h-6 w-6 flex-shrink-0" />
+							<h3 className="font-bold text-lg">Opravdu smazat veškerou paměť?</h3>
+						</div>
+						<p className="text-xs text-slate-400 leading-relaxed">
+							Tato akce trvale vymaže všechny produkty z XML feedu i všechny ručně nahrané dokumenty a texty z paměti RAG. Asistent nebude mít žádné znalosti.
+						</p>
+						<div className="bg-[#1c121e] border border-red-500/20 rounded-xl p-3 text-[11px] text-red-300 leading-normal">
+							Pro potvrzení napište <strong className="font-bold text-white select-all">SMAZAT PAMĚŤ</strong> do pole níže.
+						</div>
+						<input
+							type="text"
+							className="w-full bg-[#120f2d] border border-red-500/30 rounded-xl px-3 py-2.5 text-sm text-slate-200 outline-none focus:border-red-500 transition-colors"
+							placeholder="SMAZAT PAMĚŤ"
+							value={deleteConfirmText}
+							onChange={(e) => setDeleteConfirmText(e.target.value)}
+						/>
+						<div className="flex gap-3 pt-2">
+							<button
+								onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }}
+								className="flex-1 bg-[#1a153d] hover:bg-[#231d52] border border-[#3b328a] text-slate-200 rounded-xl py-2.5 px-4 text-xs font-semibold transition duration-200"
+							>
+								Zrušit
+							</button>
+							<button
+								onClick={deleteMemory}
+								disabled={deleteConfirmText !== 'SMAZAT PAMĚŤ' || deleting}
+								className={`flex-1 rounded-xl py-2.5 px-4 text-xs font-semibold transition duration-200 flex items-center justify-center gap-1.5 ${
+									deleteConfirmText === 'SMAZAT PAMĚŤ' && !deleting
+										? 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-600/20'
+										: 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+								}`}
+							>
+								{deleting ? 'Mažu...' : 'Trvale smazat'}
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
