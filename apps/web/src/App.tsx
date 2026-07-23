@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactElement } from 'react';
+import { useState, useEffect, useRef, type ReactElement } from 'react';
 import { 
 	Database, 
 	Settings, 
@@ -42,6 +42,35 @@ type LlmInfo = {
 	model: string;
 	apiKeyAlias: string;
 };
+
+type SyncJobStatus = 'queued' | 'running' | 'done' | 'failed';
+
+type SyncProgressState = {
+	status: SyncJobStatus;
+	processed: number;
+	total: number;
+	percent: number;
+	failed: number;
+	totalParsed: number;
+	totalEmbedded: number;
+	totalUpdated: number;
+	errorMessage?: string;
+};
+
+function syncStatusLabel(status: SyncJobStatus): string {
+	switch (status) {
+		case 'queued':
+			return 'Ve frontě';
+		case 'running':
+			return 'Probíhá';
+		case 'done':
+			return 'Dokončeno';
+		case 'failed':
+			return 'Selhalo';
+		default:
+			return 'Probíhá';
+	}
+}
 
 const DEFAULT_LLM_INFO: LlmInfo = {
 	provider: 'openai',
@@ -99,6 +128,17 @@ export function App(): ReactElement {
 	// Sync state
 	const [syncing, setSyncing] = useState(false);
 	const [syncResult, setSyncResult] = useState<{ success: boolean; message: string; stats?: { totalParsed: number; totalEmbedded: number } } | null>(null);
+	const [syncJobId, setSyncJobId] = useState<string | null>(null);
+	const [syncProgress, setSyncProgress] = useState<SyncProgressState>({
+		status: 'queued',
+		processed: 0,
+		total: 0,
+		percent: 0,
+		failed: 0,
+		totalParsed: 0,
+		totalEmbedded: 0,
+		totalUpdated: 0,
+	});
 
 	// Knowledge Base (RAG) Text Ingestion
 	const [textInput, setTextInput] = useState('');
@@ -119,7 +159,7 @@ export function App(): ReactElement {
 	const [deleteResult, setDeleteResult] = useState<{ success: boolean; message: string } | null>(null);
 	
 	// Sandbox state
-	const [previewInput, setPreviewInput] = useState('Doporuč mi nějaké běžecké boty');
+	const [previewInput, setPreviewInput] = useState('');
 	const [previewMessages, setPreviewMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([
 		{ role: 'assistant', content: 'Ahoj! Jsem tvůj nákupní poradce. Zeptej se mě na cokoliv ohledně našich produktů.' }
 	]);
@@ -135,6 +175,7 @@ export function App(): ReactElement {
 	// General states
 	const [saveState, setSaveState] = useState('');
 	const [copied, setCopied] = useState(false);
+	const syncPollTimeoutRef = useRef<number | null>(null);
 
 	const apiBaseUrl = 'http://localhost:8787';
 	const tenantId = 'da8b817d-2b47-4cf0-880c-25d258b38343'; // Standardized UUID for the default demo tenant
@@ -154,6 +195,95 @@ export function App(): ReactElement {
 		fetchSettings();
 		fetchSessions();
 	}, []);
+
+	useEffect(() => {
+		if (!syncing || !syncJobId) {
+			return;
+		}
+
+		let cancelled = false;
+
+		const clearSyncPoll = (): void => {
+			if (syncPollTimeoutRef.current !== null) {
+				window.clearTimeout(syncPollTimeoutRef.current);
+				syncPollTimeoutRef.current = null;
+			}
+		};
+
+		const scheduleNextPoll = (): void => {
+			clearSyncPoll();
+			syncPollTimeoutRef.current = window.setTimeout(() => {
+				void pollSyncJobStatus();
+			}, 1000);
+		};
+
+		const pollSyncJobStatus = async (): Promise<void> => {
+			try {
+				const response = await fetch(`${apiBaseUrl}/api/admin/connector/sync/${syncJobId}`, {
+					headers: tenantHeader,
+				});
+
+				if (!response.ok) {
+					if (!cancelled) {
+						scheduleNextPoll();
+					}
+					return;
+				}
+
+				const data = await response.json();
+				const stats = data?.stats || {};
+				const status = (data?.status as SyncJobStatus) || 'running';
+				const total = Number(stats.total || 0);
+				const processed = Number(stats.processed || 0);
+				const percentFromApi = Number(stats.percent || 0);
+				const derivedPercent = total > 0 ? Math.floor((processed / total) * 100) : 0;
+				const nextPercent = Math.max(0, Math.min(100, percentFromApi || derivedPercent || (status === 'done' ? 100 : 0)));
+
+				if (!cancelled) {
+					setSyncProgress({
+						status,
+						processed,
+						total,
+						percent: nextPercent,
+						failed: Number(stats.failed || 0),
+						totalParsed: Number(stats.totalParsed || 0),
+						totalEmbedded: Number(stats.totalEmbedded || 0),
+						totalUpdated: Number(stats.totalUpdated || 0),
+						errorMessage: typeof stats.errorMessage === 'string' ? stats.errorMessage : undefined,
+					});
+
+					if (status === 'done' || status === 'failed') {
+						setSyncing(false);
+						setSyncJobId(null);
+						setSyncResult({
+							success: status === 'done',
+							message: data?.message || (status === 'done' ? 'Synchronizace dokončena.' : 'Synchronizace selhala.'),
+							stats: {
+								totalParsed: Number(stats.totalParsed || 0),
+								totalEmbedded: Number(stats.totalEmbedded || 0),
+							},
+						});
+						clearSyncPoll();
+						return;
+					}
+
+					scheduleNextPoll();
+				}
+			} catch (err) {
+				console.error('Failed to poll sync status:', err);
+				if (!cancelled) {
+					scheduleNextPoll();
+				}
+			}
+		};
+
+		void pollSyncJobStatus();
+
+		return () => {
+			cancelled = true;
+			clearSyncPoll();
+		};
+	}, [syncing, syncJobId]);
 
 	async function fetchSettings(): Promise<void> {
 		try {
@@ -253,17 +383,39 @@ export function App(): ReactElement {
 	async function triggerSync(): Promise<void> {
 		setSyncing(true);
 		setSyncResult(null);
+		setSyncProgress({
+			status: 'queued',
+			processed: 0,
+			total: 0,
+			percent: 0,
+			failed: 0,
+			totalParsed: 0,
+			totalEmbedded: 0,
+			totalUpdated: 0,
+		});
 		try {
 			const response = await fetch(`${apiBaseUrl}/api/admin/connector/sync`, {
 				headers: tenantHeader,
 				method: 'POST',
 			});
 			const data = await response.json();
-			setSyncResult(data);
+			if (!response.ok) {
+				setSyncing(false);
+				setSyncJobId(null);
+				setSyncResult({ success: false, message: data?.error?.message || data?.message || 'Synchronizaci se nepodařilo spustit.' });
+				return;
+			}
+
+			if (typeof data?.syncJobId === 'string' && data.syncJobId.length > 0) {
+				setSyncJobId(data.syncJobId);
+			} else {
+				setSyncing(false);
+				setSyncResult({ success: false, message: 'Server nevrátil ID synchronizačního jobu.' });
+			}
 		} catch (e) {
-			setSyncResult({ success: false, message: 'Spojení se serverem selhalo.' });
-		} finally {
+			setSyncJobId(null);
 			setSyncing(false);
+			setSyncResult({ success: false, message: 'Spojení se serverem selhalo.' });
 		}
 	}
 
@@ -787,9 +939,32 @@ export function App(): ReactElement {
 										}`}
 									>
 										<RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-										{syncing ? 'Synchronizuji...' : 'Spustit synchronizaci'}
+										{syncing ? `Synchronizuji ${syncProgress.percent}%` : 'Spustit synchronizaci'}
 									</button>
 								</div>
+
+								{syncing && (
+									<div className="bg-[#0d0a22] border border-[#2b255c] p-4 rounded-xl space-y-2">
+										<div className="flex items-center justify-between text-[11px] text-slate-400">
+											<span>Průběh synchronizace · {syncStatusLabel(syncProgress.status)}</span>
+											<span className="font-mono text-indigo-300">{syncProgress.percent}%</span>
+										</div>
+										<div className="w-full h-2 rounded-full bg-[#1a153d] border border-[#2b255c] overflow-hidden">
+											<div
+												className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-500"
+												style={{ width: `${syncProgress.percent}%` }}
+											/>
+										</div>
+										<div className="text-[11px] text-slate-500 font-mono flex items-center justify-between">
+											<span>Zpracováno: {syncProgress.processed}/{syncProgress.total > 0 ? syncProgress.total : '?'}</span>
+											<span>Uloženo: {syncProgress.totalEmbedded}</span>
+										</div>
+										<div className="text-[11px] text-slate-500 font-mono flex items-center justify-between">
+											<span>Selhalo: {syncProgress.failed}</span>
+											{syncProgress.errorMessage ? <span className="text-rose-300">{syncProgress.errorMessage}</span> : <span>&nbsp;</span>}
+										</div>
+									</div>
+								)}
 
 								{syncResult && (
 									<div className={`p-4 rounded-xl border text-xs flex gap-3 ${

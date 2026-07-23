@@ -1,7 +1,7 @@
 # PLAN - SaaS AI Shopping Agent
 
 ## Last Update
-- 2026-06-15
+- 2026-07-23
 
 ## Status Snapshot
 - DONE: Monorepo skeleton, widget Shadow DOM loader, base DB schema, initial routes, TS compilation fixed.
@@ -31,8 +31,10 @@
 
 ### Phase 3 - RAG Ingestion and Retrieval [TODO]
 - DONE: pgvector extension and initial embedding table schema.
+- DONE: feed sync now runs as async ingestion job with tenant-scoped status endpoint and live progress stats (processed/total/percent).
+- WIP: admin knowledge-base UI polling of sync job status with live percentage indicator in action button and progress bar.
 - TODO: ingestion endpoints for JSON/CSV/URL, chunking and dedupe service, retrieval route with hybrid ranking.
-- NEXT: implement ingestion route and job status tracking.
+- NEXT: add integration tests for ingestion job lifecycle (queued -> running -> done/failed) and polling error recovery.
 
 ### Phase 4 - Conversational Commerce Tools [WIP]
 - DONE: tool-calling skeleton in ai-core, commerce route placeholders.

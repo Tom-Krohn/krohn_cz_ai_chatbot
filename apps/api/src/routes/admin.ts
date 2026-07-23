@@ -21,6 +21,9 @@ import {
 	getChatMessages,
 	clearAllMemory,
 	insertKnowledgeChunk,
+	createIngestionJob,
+	getIngestionJob,
+	updateIngestionJob,
 } from '../lib/db-repository.js';
 import { syncFeed, chunkText } from '../lib/feed-sync.js';
 
@@ -174,8 +177,117 @@ adminRoute.post('/connector/sync', async (context) => {
 		);
 	}
 
-	const result = await syncFeed(tenantId, settings.connector.productFeedUrl);
-	return context.json(result, result.success ? 200 : 500);
+	const syncJob = await createIngestionJob(tenantId, 'product_feed', {
+		failed: 0,
+		percent: 0,
+		processed: 0,
+		total: 0,
+		totalEmbedded: 0,
+		totalParsed: 0,
+		totalUpdated: 0,
+	});
+
+	void (async () => {
+		try {
+			await updateIngestionJob(tenantId, syncJob.id, 'running', {
+				startedAt: new Date().toISOString(),
+			});
+
+			const result = await syncFeed(tenantId, settings.connector.productFeedUrl, {
+				onProgress: async (progress) => {
+					await updateIngestionJob(tenantId, syncJob.id, 'running', {
+						failed: progress.failed,
+						percent: progress.percent,
+						processed: progress.processed,
+						total: progress.total,
+						totalEmbedded: progress.totalEmbedded,
+						totalParsed: progress.totalParsed,
+						totalUpdated: progress.totalUpdated,
+					});
+				},
+			});
+
+			if (result.success) {
+				await updateIngestionJob(tenantId, syncJob.id, 'done', {
+					failed: result.stats?.failed ?? 0,
+					finishedAt: new Date().toISOString(),
+					percent: 100,
+					processed: result.stats?.totalParsed ?? 0,
+					total: result.stats?.totalParsed ?? 0,
+					totalEmbedded: result.stats?.totalEmbedded ?? 0,
+					totalParsed: result.stats?.totalParsed ?? 0,
+					totalUpdated: result.stats?.totalUpdated ?? 0,
+				});
+				return;
+			}
+
+			await updateIngestionJob(tenantId, syncJob.id, 'failed', {
+				errorMessage: result.message,
+				finishedAt: new Date().toISOString(),
+			});
+		} catch (error: any) {
+			console.error('Background feed sync failed:', error);
+			await updateIngestionJob(tenantId, syncJob.id, 'failed', {
+				errorMessage: `Synchronization failed: ${error.message}`,
+				finishedAt: new Date().toISOString(),
+			});
+		}
+	})();
+
+	return context.json({
+		success: true,
+		message: 'Synchronizace spuštěna.',
+		syncJobId: syncJob.id,
+		status: syncJob.status,
+		stats: syncJob.stats,
+		createdAt: syncJob.createdAt,
+		updatedAt: syncJob.updatedAt,
+	}, 202);
+});
+
+adminRoute.get('/connector/sync/:jobId', async (context) => {
+	const tenantId = readTenantId(context);
+	const jobId = context.req.param('jobId');
+	const job = await getIngestionJob(tenantId, jobId);
+
+	if (!job) {
+		return context.json(
+			{
+				error: {
+					code: 'sync_job_not_found',
+					message: 'Synchronizační job nebyl nalezen.',
+				},
+			},
+			404,
+		);
+	}
+
+	const stats = job.stats || {};
+	const total = Number(stats.total || 0);
+	const processed = Number(stats.processed || 0);
+	const percent = total > 0
+		? Math.max(0, Math.min(100, Math.floor((processed / total) * 100)))
+		: (job.status === 'done' ? 100 : 0);
+
+	const message = job.status === 'done'
+		? `Synchronizace dokončena. Zpracováno ${stats.totalEmbedded || 0} produktů.`
+		: job.status === 'failed'
+			? String(stats.errorMessage || 'Synchronizace selhala.')
+			: 'Synchronizace probíhá.';
+
+	return context.json({
+		syncJobId: job.id,
+		status: job.status,
+		message,
+		stats: {
+			...stats,
+			percent,
+			processed,
+			total,
+		},
+		createdAt: job.createdAt,
+		updatedAt: job.updatedAt,
+	});
 });
 
 // RAG memory management: delete entire memory for this tenant

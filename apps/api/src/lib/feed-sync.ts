@@ -13,8 +13,38 @@ export type SyncResult = {
 		totalParsed: number;
 		totalEmbedded: number;
 		totalUpdated: number;
+		failed: number;
 	};
 };
+
+export type SyncProgress = {
+	processed: number;
+	total: number;
+	percent: number;
+	failed: number;
+	totalParsed: number;
+	totalEmbedded: number;
+	totalUpdated: number;
+};
+
+export type SyncOptions = {
+	onProgress?: (progress: SyncProgress) => Promise<void> | void;
+};
+
+function calculatePercent(processed: number, total: number, forceDone = false): number {
+	if (forceDone) {
+		return 100;
+	}
+
+	if (total <= 0) {
+		return 0;
+	}
+
+	const ratio = Math.floor((processed / total) * 100);
+	if (ratio < 0) return 0;
+	if (ratio > 100) return 100;
+	return ratio;
+}
 
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delayMs = 15000): Promise<T> {
 	try {
@@ -35,9 +65,33 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 5, delayMs = 150
  * Products are upserted by externalId; only changed products get their embeddings regenerated.
  * Documents added manually via the knowledge base UI are never touched.
  */
-export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncResult> {
+export async function syncFeed(tenantId: string, feedUrl: string, options: SyncOptions = {}): Promise<SyncResult> {
 	try {
 		console.log(`Starting sync for tenant ${tenantId} from ${feedUrl}`);
+		let processed = 0;
+		let total = 0;
+		let failed = 0;
+		let totalEmbedded = 0;
+		let totalUpdated = 0;
+		let totalParsed = 0;
+
+		const pushProgress = async (forceDone = false): Promise<void> => {
+			if (!options.onProgress) {
+				return;
+			}
+
+			await options.onProgress({
+				processed,
+				total,
+				percent: calculatePercent(processed, total, forceDone),
+				failed,
+				totalParsed,
+				totalEmbedded,
+				totalUpdated,
+			});
+		};
+
+		await pushProgress(false);
 		
 		let xmlText = '';
 		
@@ -74,6 +128,9 @@ export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncR
 		}
 
 		const items = Array.isArray(shopitems) ? shopitems : [shopitems];
+		total = items.length;
+		totalParsed = items.length;
+		await pushProgress(false);
 
 		// Upsert all products first (no clearProducts — we preserve existing memory)
 		const productsToEmbed: { productId: string; title: string; chunkText: string; isNew: boolean }[] = [];
@@ -107,8 +164,6 @@ export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncR
 			productsToEmbed.push({ productId, title, chunkText, isNew: true });
 		}
 
-		let totalEmbedded = 0;
-		let totalUpdated = 0;
 		const batchSize = 5;
 		const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -129,7 +184,11 @@ export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncR
 						await insertProductEmbedding(tenantId, product.productId, product.chunkText, embedding);
 						totalEmbedded++;
 						if (!product.isNew) totalUpdated++;
+					} else {
+						failed++;
 					}
+					processed++;
+					await pushProgress(false);
 				}
 			} catch (err: any) {
 				console.error(`Failed to generate embeddings for batch starting at index ${i}:`, err.message);
@@ -144,7 +203,10 @@ export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncR
 						totalEmbedded++;
 					} catch (individualErr: any) {
 						console.error(`Failed to generate individual embedding for product ${product.title}:`, individualErr.message);
+						failed++;
 					}
+					processed++;
+					await pushProgress(false);
 					// Wait 500ms between individual fallbacks to respect rate limits
 					await sleep(500);
 				}
@@ -156,13 +218,16 @@ export async function syncFeed(tenantId: string, feedUrl: string): Promise<SyncR
 			}
 		}
 
+		await pushProgress(true);
+
 		return {
 			success: true,
 			message: `Synchronizace dokončena. Zpracováno ${totalEmbedded} produktů (paměť dokumentů zachována).`,
 			stats: {
-				totalParsed: items.length,
+				totalParsed,
 				totalEmbedded,
 				totalUpdated,
+				failed,
 			},
 		};
 	} catch (error: any) {

@@ -1,6 +1,30 @@
 import crypto from 'crypto';
 import { query } from './db.js';
 
+export type IngestionJobStatus = 'queued' | 'running' | 'done' | 'failed';
+
+export type IngestionJobStats = {
+	processed?: number;
+	total?: number;
+	percent?: number;
+	failed?: number;
+	totalParsed?: number;
+	totalEmbedded?: number;
+	totalUpdated?: number;
+	errorMessage?: string;
+	startedAt?: string;
+	finishedAt?: string;
+};
+
+export type IngestionJobRecord = {
+	id: string;
+	status: IngestionJobStatus;
+	sourceType: string;
+	stats: IngestionJobStats;
+	createdAt: string;
+	updatedAt: string;
+};
+
 export function getTenantUuid(slug: string): string {
 	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	if (uuidRegex.test(slug)) {
@@ -385,4 +409,85 @@ export async function searchProductEmbeddings(tenantId: string, queryEmbedding: 
 		similarity: parseFloat(row.similarity),
 		title: row.title,
 	}));
+}
+
+function parseIngestionJobRow(row: any): IngestionJobRecord {
+	return {
+		id: row.id,
+		status: row.status,
+		sourceType: row.source_type,
+		stats: row.stats || {},
+		createdAt: row.created_at.toISOString(),
+		updatedAt: row.updated_at.toISOString(),
+	};
+}
+
+export async function createIngestionJob(
+	tenantId: string,
+	sourceType: string,
+	stats: IngestionJobStats = {}
+): Promise<IngestionJobRecord> {
+	const uuid = getTenantUuid(tenantId);
+	await ensureTenant(tenantId);
+	const jobId = crypto.randomUUID();
+
+	const res = await query(
+		`INSERT INTO ingestion_jobs (id, tenant_id, source_type, status, stats, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		 RETURNING id, source_type, status, stats, created_at, updated_at`,
+		[jobId, uuid, sourceType, 'queued', JSON.stringify(stats)]
+	);
+
+	return parseIngestionJobRow(res.rows[0]);
+}
+
+export async function getIngestionJob(tenantId: string, jobId: string): Promise<IngestionJobRecord | null> {
+	const uuid = getTenantUuid(tenantId);
+	const res = await query(
+		`SELECT id, source_type, status, stats, created_at, updated_at
+		 FROM ingestion_jobs
+		 WHERE tenant_id = $1 AND id = $2`,
+		[uuid, jobId]
+	);
+
+	if (res.rows.length === 0) {
+		return null;
+	}
+
+	return parseIngestionJobRow(res.rows[0]);
+}
+
+export async function updateIngestionJob(
+	tenantId: string,
+	jobId: string,
+	status: IngestionJobStatus,
+	statsPatch: IngestionJobStats
+): Promise<IngestionJobRecord | null> {
+	const uuid = getTenantUuid(tenantId);
+	const existing = await getIngestionJob(tenantId, jobId);
+
+	if (!existing) {
+		return null;
+	}
+
+	const mergedStats = {
+		...existing.stats,
+		...statsPatch,
+	};
+
+	const res = await query(
+		`UPDATE ingestion_jobs
+		 SET status = $3,
+		     stats = $4,
+		     updated_at = NOW()
+		 WHERE tenant_id = $1 AND id = $2
+		 RETURNING id, source_type, status, stats, created_at, updated_at`,
+		[uuid, jobId, status, JSON.stringify(mergedStats)]
+	);
+
+	if (res.rows.length === 0) {
+		return null;
+	}
+
+	return parseIngestionJobRow(res.rows[0]);
 }
