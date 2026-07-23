@@ -24,6 +24,7 @@ import {
 	createIngestionJob,
 	getIngestionJob,
 	updateIngestionJob,
+	searchProductEmbeddings,
 } from '../lib/db-repository.js';
 import { syncFeed, chunkText } from '../lib/feed-sync.js';
 
@@ -136,10 +137,19 @@ adminRoute.post('/chat-preview', async (context) => {
 
 	const tenantId = readTenantId(context);
 	const settings = await getTenantSettings(tenantId);
+
+	let productsContext: any[] = [];
+	try {
+		const queryEmbedding = await generateEmbedding(parsed.data.message);
+		productsContext = await searchProductEmbeddings(tenantId, queryEmbedding, 5);
+	} catch (err: any) {
+		console.error('Failed semantic search context retrieval in preview:', err.message);
+	}
+
 	const preview = await runChatTurn({
 		message: parsed.data.message,
 		tenantId,
-	}, undefined, settings?.llm);
+	}, productsContext, settings?.llm);
 
 	return context.json({
 		preview,
