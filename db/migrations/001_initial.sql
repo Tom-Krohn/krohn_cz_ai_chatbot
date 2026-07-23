@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS product_embeddings (
 );
 
 CREATE INDEX IF NOT EXISTS product_embeddings_tenant_idx ON product_embeddings (tenant_id);
-CREATE INDEX IF NOT EXISTS product_embeddings_vector_idx ON product_embeddings USING ivfflat (embedding vector_cosine_ops);
+
+-- No vector index for high accuracy search on small-to-medium datasets (exact nearest neighbor search)
+-- CREATE INDEX IF NOT EXISTS product_embeddings_vector_idx ON product_embeddings USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS ingestion_jobs (
 	id UUID PRIMARY KEY,
