@@ -1,7 +1,7 @@
 # PLAN - SaaS AI Shopping Agent
 
 ## Last Update
-- 2026-07-23
+- 2026-10-07
 
 ## Status Snapshot
 - DONE: Monorepo skeleton, widget Shadow DOM loader, base DB schema, initial routes, TS compilation fixed.
@@ -21,6 +21,7 @@
 
 ### Phase 1 - Foundation [WIP]
 - DONE: repo scaffolding, shared schemas, API app bootstrap, tenant middleware, migrations baseline.
+- DONE: `pnpm dev` builds workspace dependencies before starting persistent dev watchers.
 - WIP: audit logging and stricter security headers rollout.
 - NEXT: add persistent settings storage wiring to DB instead of in-memory route state.
 
