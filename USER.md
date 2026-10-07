@@ -93,8 +93,3 @@ API vyžaduje JWT token + hlavičku `x-tenant-id`. V dev prostředí lze testova
 - **Databáze** → spravovaný PostgreSQL s pgvector (Railway, Neon, Supabase)
 
 Před nasazením do produkce nastav všechny proměnné prostředí v cílovém prostředí (ne v `.env` souboru).
-
-## Živý plán projektu
-
-Stav implementace, WIP úkoly a další kroky jsou vedeny v [PLAN.md](PLAN.md).
-Pravidla pro AI agenty pracující na kódu jsou v [AGENTS.md](AGENTS.md).
