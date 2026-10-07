@@ -5,8 +5,8 @@
 
 ## Status Snapshot
 - DONE: Monorepo skeleton, widget Shadow DOM loader, base DB schema, initial routes, TS compilation fixed.
-- WIP: SQL-backed repository migration (Phase 1/7), Heureka/Zbozi XML feed RAG ingestion pipeline (Phase 3), Jellyfin-like dark UI (Phase 7), and widget bundling (Phase 2).
-- TODO: Production e-shop adapters, voice orchestration latency, hardening.
+- WIP: SQL-backed repository migration (Phase 1/7), Heureka/Zbozi XML feed RAG ingestion pipeline (Phase 3), Jellyfin-like dark UI (Phase 7), widget bundling (Phase 2), and public-release hardening (Phase 8).
+- TODO: Production e-shop adapters and voice orchestration latency.
 
 ## Architecture Decisions
 - Backend: Hono.
@@ -64,7 +64,8 @@
 - TODO: persistent DB-backed storage and credential vault integration.
 - NEXT: expose backend-reported provider key availability in admin UI to pre-validate selected provider before save.
 
-### Phase 8 - Hardening and Go-Live [TODO]
+### Phase 8 - Hardening and Go-Live [WIP]
+- DONE: sanitized the tracked environment template and removed its previous versions from Git history.
 - TODO: automated tests (unit/integration/e2e/load), OWASP hardening, SLO dashboard, canary rollout and rollback playbook.
 - NEXT: introduce minimal test suite per route and middleware.
 
